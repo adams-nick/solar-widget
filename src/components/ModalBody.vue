@@ -3,6 +3,7 @@ import { ref } from "vue";
 import ScanRequestForm from "./ScanRequestForm.vue";
 import MapConfirmation from "./MapConfirmation.vue";
 import SolarResults from "./SolarResults.vue";
+import SolarFluxDataLayer from "./SolarFluxDataLayer.vue";
 
 const currentStep = ref("form"); // 'form', 'map', or 'results'
 const locationData = ref(null);
@@ -97,6 +98,12 @@ const resetToMap = () => {
     <SolarResults
       v-else-if="currentStep === 'results'"
       :solarData="solarData"
+      @showSolarLayer="currentStep = 'solar-flux-data-layer'"
+    />
+
+    <SolarFluxDataLayer
+      :solarData="solarData"
+      v-else-if="currentStep === 'solar-flux-data-layer'"
     />
   </div>
 </template>

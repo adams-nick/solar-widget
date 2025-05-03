@@ -28,6 +28,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/solar-api": {
+        target: "http://localhost:3000", // Your actual server URL
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

@@ -8,6 +8,13 @@ const props = defineProps({
   },
 });
 
+const emit = defineEmits(["showSolarLayer"]);
+
+function emitSolarlayer() {
+  console.log("emitted");
+  emit("showSolarLayer");
+}
+
 // Extract data from the API response
 const solarPotential = computed(() => {
   return props.solarData.data.solarPotential || {};
@@ -143,7 +150,9 @@ const financialSummary = computed(() => {
       </div>
 
       <div class="cta-panel">
-        <button class="cta-button">Request Detailed Quote</button>
+        <button class="cta-button" @click="emitSolarlayer()">
+          Request Detailed Quote
+        </button>
       </div>
     </div>
 
