@@ -1,8 +1,17 @@
 <template>
   <div class="solar-flux-visualization">
     <div class="visualization-header">
-      <h2>Monthly Solar Potential</h2>
-      <div class="month-display">
+      <h2>
+        {{
+          isMonthlyView ? "Monthly Solar Potential" : "Annual Solar Potential"
+        }}
+      </h2>
+      <div class="view-toggle">
+        <button @click="toggleView" class="toggle-button">
+          Switch to {{ isMonthlyView ? "Annual" : "Monthly" }} View
+        </button>
+      </div>
+      <div v-if="isMonthlyView" class="month-display">
         <span class="month-label">{{ currentMonthName }}</span>
       </div>
     </div>
@@ -25,7 +34,7 @@
       </div>
     </div>
 
-    <div class="visualization-controls">
+    <div class="visualization-controls" v-if="isMonthlyView">
       <button
         @click="toggleAnimation"
         class="control-button"
@@ -72,10 +81,12 @@ export default {
       isAnimating: false,
       animationInterval: null,
       monthlyFluxData: null,
+      annualFluxData: null,
       currentFluxImageUrl: null,
       isLoading: false,
       errorMessage: "",
       dataLoaded: false,
+      isMonthlyView: true,
       months: [
         "January",
         "February",
@@ -127,11 +138,19 @@ export default {
   },
   methods: {
     async fetchFluxData(forceSynthetic = false) {
+      if (this.isMonthlyView) {
+        this.fetchMonthlyFluxData(forceSynthetic);
+      } else {
+        this.fetchAnnualFluxData(forceSynthetic);
+      }
+    },
+
+    async fetchMonthlyFluxData(forceSynthetic = false) {
       try {
         this.isLoading = true;
         this.errorMessage = "";
 
-        console.log("Fetching flux data from server...");
+        console.log("Fetching monthly flux data from server...");
 
         // Get the base URL - use window.location in browser environments
         const baseUrl = window.location.origin;
@@ -139,7 +158,7 @@ export default {
         console.log(`Using base URL: ${baseUrl} for API request`);
 
         // Make a request to our server endpoint with full URL
-        const response = await fetch(`${baseUrl}/solar-api/data-layers`, {
+        const response = await fetch(`${baseUrl}/api/v1/data-layers`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -150,6 +169,7 @@ export default {
               longitude: this.location.longitude,
             },
             radius: 50,
+            layerType: "monthlyFlux",
             includeMask: true,
             forceSynthetic,
           }),
@@ -166,7 +186,7 @@ export default {
         }
 
         const data = await response.json();
-        console.log("Received data from server:", data);
+        console.log("Received monthly data from server:", data);
 
         if (data.monthlyDataUrls && data.monthlyDataUrls.length > 0) {
           console.log(
@@ -175,9 +195,6 @@ export default {
           this.monthlyFluxData = data.monthlyDataUrls;
           this.dataLoaded = true;
 
-          // Don't modify the data URIs by adding timestamps
-          // They're already complete and valid as-is
-
           // Update visualization with the new data
           this.updateVisualization();
         } else {
@@ -185,7 +202,7 @@ export default {
           throw new Error("No solar flux data available for this location");
         }
       } catch (error) {
-        console.error("Error fetching flux data:", error);
+        console.error("Error fetching monthly flux data:", error);
         this.errorMessage =
           error.message || "Failed to load solar visualization data";
       } finally {
@@ -193,9 +210,82 @@ export default {
       }
     },
 
+    async fetchAnnualFluxData(forceSynthetic = false) {
+      try {
+        this.isLoading = true;
+        this.errorMessage = "";
+
+        console.log("Fetching annual flux data from server...");
+
+        // Get the base URL - use window.location in browser environments
+        const baseUrl = window.location.origin;
+
+        console.log(`Using base URL: ${baseUrl} for API request`);
+
+        // Make a request to our server endpoint for annual flux
+        const response = await fetch(`${baseUrl}/api/v1/data-layers`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            location: {
+              latitude: this.location.latitude,
+              longitude: this.location.longitude,
+            },
+            radius: 50,
+            layerType: "annualFlux", // Changed to annualFlux
+            includeMask: true,
+            forceSynthetic,
+          }),
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          console.error(
+            `Error response: ${response.status} ${response.statusText}`
+          );
+          throw new Error(
+            `Server returned ${response.status}: ${response.statusText}`
+          );
+        }
+
+        const data = await response.json();
+        console.log("Received annual data from server:", data);
+
+        if (data.dataUrl) {
+          console.log("Loaded annual visualization");
+          this.annualFluxData = data.dataUrl;
+          this.dataLoaded = true;
+
+          // Update visualization with the new data
+          this.updateVisualization();
+        } else {
+          console.error("No annual data URL returned from server");
+          throw new Error(
+            "No annual solar flux data available for this location"
+          );
+        }
+      } catch (error) {
+        console.error("Error fetching annual flux data:", error);
+        this.errorMessage =
+          error.message || "Failed to load annual solar visualization data";
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
     updateVisualization() {
+      if (this.isMonthlyView) {
+        this.updateMonthlyVisualization();
+      } else {
+        this.updateAnnualVisualization();
+      }
+    },
+
+    updateMonthlyVisualization() {
       if (!this.monthlyFluxData || !this.dataLoaded) {
-        console.log("Skipping visualization update - missing data:", {
+        console.log("Skipping monthly visualization update - missing data:", {
           hasMonthlyFluxData: !!this.monthlyFluxData,
           dataLoaded: this.dataLoaded,
         });
@@ -203,7 +293,10 @@ export default {
       }
 
       try {
-        console.log("Updating visualization for month:", this.currentMonth);
+        console.log(
+          "Updating monthly visualization for month:",
+          this.currentMonth
+        );
 
         // Simply set the current flux image URL - these are base64 data URIs
         this.currentFluxImageUrl = this.monthlyFluxData[this.currentMonth];
@@ -219,7 +312,7 @@ export default {
           this.errorMessage = ""; // Clear any previous errors
         }
       } catch (error) {
-        console.error("Error updating visualization:", error);
+        console.error("Error updating monthly visualization:", error);
         this.errorMessage = "Failed to display visualization: " + error.message;
 
         // If visualization fails, try using synthetic visualization
@@ -227,8 +320,67 @@ export default {
           console.log(
             "Error in visualization, requesting synthetic version..."
           );
-          this.fetchFluxData(true);
+          this.fetchMonthlyFluxData(true);
         }
+      }
+    },
+
+    updateAnnualVisualization() {
+      if (!this.annualFluxData || !this.dataLoaded) {
+        console.log("Skipping annual visualization update - missing data:", {
+          hasAnnualFluxData: !!this.annualFluxData,
+          dataLoaded: this.dataLoaded,
+        });
+        return;
+      }
+
+      try {
+        console.log("Updating annual visualization");
+
+        // Set the annual flux image URL
+        this.currentFluxImageUrl = this.annualFluxData;
+
+        if (!this.currentFluxImageUrl) {
+          console.error("No image URL for annual visualization");
+          this.errorMessage = "Missing data for annual visualization";
+        } else {
+          console.log("Updated annual visualization");
+          this.errorMessage = ""; // Clear any previous errors
+        }
+      } catch (error) {
+        console.error("Error updating annual visualization:", error);
+        this.errorMessage = "Failed to display visualization: " + error.message;
+
+        // If visualization fails, try using synthetic visualization
+        if (!forceSynthetic) {
+          console.log(
+            "Error in visualization, requesting synthetic version..."
+          );
+          this.fetchAnnualFluxData(true);
+        }
+      }
+    },
+
+    toggleView() {
+      // Stop animation if it's running
+      if (this.isAnimating) {
+        this.stopAnimation();
+      }
+
+      // Toggle the view mode
+      this.isMonthlyView = !this.isMonthlyView;
+
+      // Reset error message when switching views
+      this.errorMessage = "";
+
+      // Check if we need to fetch new data
+      if (this.isMonthlyView && !this.monthlyFluxData) {
+        this.fetchMonthlyFluxData();
+      } else if (!this.isMonthlyView && !this.annualFluxData) {
+        this.fetchAnnualFluxData();
+      } else {
+        // If we already have the data, just update the visualization
+        this.updateVisualization();
       }
     },
 
@@ -284,6 +436,26 @@ export default {
   font-weight: bold;
   min-width: 100px;
   text-align: center;
+}
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-weight: bold;
+}
+
+.toggle-button:hover {
+  background-color: #388e3c;
 }
 
 .flux-container {

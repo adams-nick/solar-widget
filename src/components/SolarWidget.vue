@@ -53,7 +53,7 @@ defineExpose({ open, close });
   color: black;
   border-radius: 8px;
   width: 100%;
-  max-width: 600px;
+  max-width: 900px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
