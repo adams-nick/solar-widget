@@ -5,6 +5,7 @@ import MapConfirmation from "./MapConfirmation.vue";
 import SolarResults from "./SolarResults.vue";
 import SolarFluxDataLayer from "./SolarFluxDataLayer.vue";
 import RgbVisualization from "./RgbVisualization.vue";
+import HourlyShadeVisualization from "./HourlyShadeVisualization.vue";
 
 const currentStep = ref("form"); // 'form', 'map', or 'results'
 const locationData = ref(null);
@@ -110,7 +111,13 @@ const resetToMap = () => {
 
     <RgbVisualization
       :solarData="solarData"
+      @showHourlyShadeLayer="currentStep = 'hourly-shade-layer'"
       v-else-if="currentStep === 'aerial-rgb-layer'"
+    />
+
+    <HourlyShadeVisualization
+      :solarData="solarData"
+      v-else-if="currentStep === 'hourly-shade-layer'"
     />
   </div>
 </template>

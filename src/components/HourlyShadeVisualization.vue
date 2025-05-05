@@ -1,17 +1,26 @@
 <template>
-  <div class="rgb-visualization">
+  <div class="hourly-shade-visualization">
     <div class="visualization-header">
-      <h2>Aerial Imagery</h2>
+      <h2>Hourly Shade Patterns</h2>
       <div class="controls">
+        <div class="date-controls">
+          <select v-model="selectedMonth" @change="fetchHourlyShade">
+            <option
+              v-for="(month, index) in months"
+              :key="index"
+              :value="index"
+            >
+              {{ month }}
+            </option>
+          </select>
+          <select v-model="selectedDay" @change="fetchHourlyShade">
+            <option v-for="day in daysInMonth" :key="day" :value="day">
+              {{ day }}
+            </option>
+          </select>
+        </div>
         <button @click="toggleBuildingFocus" class="control-button">
           {{ buildingFocus ? "Show Full Area" : "Focus on Building" }}
-        </button>
-        <button
-          v-if="errorMessage"
-          @click="fetchRgbData()"
-          class="retry-button"
-        >
-          <span class="retry-icon">↻</span> Retry
         </button>
       </div>
     </div>
@@ -20,38 +29,52 @@
       <!-- Loading state -->
       <div v-if="isLoading" class="loading-container">
         <div class="loader"></div>
-        <p>Loading aerial imagery...</p>
+        <p>Loading hourly shade data...</p>
       </div>
 
       <!-- Error state -->
       <div v-else-if="errorMessage" class="error-container">
         <div class="error-icon">!</div>
         <p>{{ errorMessage }}</p>
+        <button @click="fetchHourlyShade()" class="retry-button">Retry</button>
       </div>
 
       <!-- Success state -->
-      <div v-else-if="rgbData" class="image-container">
-        <img
-          :src="rgbData"
-          alt="Aerial view of building location"
-          class="aerial-image"
-        />
+      <div v-else-if="hourlyData.length > 0" class="hourly-data-container">
+        <div class="hour-slider">
+          <label for="hour-slider"
+            >Hour: {{ formatHour(selectedHourIndex) }}</label
+          >
+          <input
+            id="hour-slider"
+            type="range"
+            min="0"
+            max="23"
+            v-model.number="selectedHourIndex"
+          />
+        </div>
+        <div class="image-container">
+          <img
+            :src="hourlyData[selectedHourIndex]"
+            alt="Hourly shade pattern visualization"
+            class="shade-image"
+          />
+        </div>
       </div>
 
       <!-- Empty state -->
       <div v-else class="empty-state">
-        <p>No aerial imagery available. Click "Fetch Imagery" to load.</p>
-        <button @click="fetchRgbData()" class="primary-button">
-          Fetch Imagery
+        <p>No hourly shade data available. Click "Fetch Data" to load.</p>
+        <button @click="fetchHourlyShade()" class="primary-button">
+          Fetch Data
         </button>
       </div>
     </div>
   </div>
-  <button @click="emitHourlyShade()">Show Hourly Shade layer</button>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, watch } from "vue";
 
 // Props
 const props = defineProps({
@@ -61,13 +84,39 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["show-hourly-shade-layer"]);
-
 // Reactive state
-const rgbData = ref(null);
+const hourlyData = ref([]);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const buildingFocus = ref(true);
+const selectedMonth = ref(new Date().getMonth());
+const selectedDay = ref(15); // Default to middle of month
+const selectedHourIndex = ref(12); // Default to noon
+
+// Month names
+const months = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// Compute days in selected month
+const daysInMonth = computed(() => {
+  const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return Array.from(
+    { length: daysPerMonth[selectedMonth.value] },
+    (_, i) => i + 1
+  );
+});
 
 // Computed properties
 const location = computed(() => {
@@ -83,19 +132,28 @@ const location = computed(() => {
   return { latitude: 37.7749, longitude: -122.4194 };
 });
 
-// Methods
-const emitHourlyShade = () => {
-  console.log("emitting to go to hourly shade");
-  emit("show-hourly-shade-layer");
+// Format hour for display
+const formatHour = (hour) => {
+  if (hour === 0) return "12am";
+  if (hour === 12) return "12pm";
+  if (hour < 12) return `${hour}am`;
+  return `${hour - 12}pm`;
 };
 
-const fetchRgbData = async () => {
+// Toggle building focus
+const toggleBuildingFocus = () => {
+  buildingFocus.value = !buildingFocus.value;
+  fetchHourlyShade();
+};
+
+// Fetch hourly shade data
+const fetchHourlyShade = async () => {
   try {
     isLoading.value = true;
     errorMessage.value = "";
 
     const baseUrl = window.location.origin;
-    const response = await fetch(`${baseUrl}/api/v1/data-layers/rgb`, {
+    const response = await fetch(`${baseUrl}/api/v1/data-layers/hourly-shade`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -105,6 +163,8 @@ const fetchRgbData = async () => {
         },
         radius: 50,
         buildingFocus: buildingFocus.value,
+        month: selectedMonth.value,
+        day: selectedDay.value,
       }),
       credentials: "include",
     });
@@ -119,50 +179,34 @@ const fetchRgbData = async () => {
 
     const data = await response.json();
 
-    console.log("rgb data: ", data);
-    if (data.dataUrl) {
-      rgbData.value = data.dataUrl;
-    } else if (data.visualizations) {
-      // Handle different response format
-      rgbData.value = data.visualizations;
+    if (data.hourlyDataUrls && data.hourlyDataUrls.length > 0) {
+      hourlyData.value = data.hourlyDataUrls;
     } else {
-      throw new Error("No aerial imagery available for this location");
+      throw new Error("No hourly shade data available for this location");
     }
   } catch (error) {
-    console.error("Error fetching RGB data:", error);
-    errorMessage.value = error.message || "Failed to load aerial imagery";
-    rgbData.value = null;
+    console.error("Error fetching hourly shade data:", error);
+    errorMessage.value = error.message || "Failed to load hourly shade data";
+    hourlyData.value = [];
   } finally {
     isLoading.value = false;
   }
 };
 
-const toggleBuildingFocus = () => {
-  buildingFocus.value = !buildingFocus.value;
-  // Re-fetch data with new building focus setting
-  fetchRgbData();
-};
-
-// Lifecycle hooks and watchers
-onMounted(() => {
-  if (props.solarData) {
-    fetchRgbData();
-  }
-});
-
+// Watch for changes to solarData
 watch(
   () => props.solarData,
   () => {
     if (props.solarData) {
-      fetchRgbData();
+      fetchHourlyShade();
     }
   },
-  { deep: true }
+  { immediate: true }
 );
 </script>
 
 <style scoped>
-.rgb-visualization {
+.hourly-shade-visualization {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -190,6 +234,18 @@ watch(
 .controls {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
+}
+
+.date-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.date-controls select {
+  padding: 0.3rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
 }
 
 .control-button,
@@ -219,30 +275,43 @@ watch(
   background-color: #f57c00;
 }
 
-.retry-icon {
-  font-weight: bold;
-  margin-right: 0.25rem;
-}
-
 .visualization-content {
   flex: 1;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   padding: 1rem;
   background-color: #fafafa;
   overflow: hidden;
 }
 
-.image-container {
+.hourly-data-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.hour-slider {
+  margin-bottom: 1rem;
+}
+
+.hour-slider label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+}
+
+.hour-slider input {
   width: 100%;
-  height: 100%;
+}
+
+.image-container {
+  flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.aerial-image {
+.shade-image {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -255,7 +324,7 @@ watch(
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  flex: 1;
 }
 
 .loader {
@@ -285,6 +354,7 @@ watch(
   color: #d32f2f;
   text-align: center;
   max-width: 400px;
+  margin: 0 auto;
 }
 
 .error-icon {
@@ -309,5 +379,6 @@ watch(
   gap: 1rem;
   text-align: center;
   color: #757575;
+  flex: 1;
 }
 </style>
