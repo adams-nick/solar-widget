@@ -4,6 +4,7 @@ import ScanRequestForm from "./ScanRequestForm.vue";
 import MapConfirmation from "./MapConfirmation.vue";
 import SolarResults from "./SolarResults.vue";
 import SolarFluxDataLayer from "./SolarFluxDataLayer.vue";
+import RgbVisualization from "./RgbVisualization.vue";
 
 const currentStep = ref("form"); // 'form', 'map', or 'results'
 const locationData = ref(null);
@@ -103,7 +104,13 @@ const resetToMap = () => {
 
     <SolarFluxDataLayer
       :solarData="solarData"
+      @showRgbLayer="currentStep = 'aerial-rgb-layer'"
       v-else-if="currentStep === 'solar-flux-data-layer'"
+    />
+
+    <RgbVisualization
+      :solarData="solarData"
+      v-else-if="currentStep === 'aerial-rgb-layer'"
     />
   </div>
 </template>

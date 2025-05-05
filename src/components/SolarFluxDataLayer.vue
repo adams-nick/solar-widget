@@ -29,6 +29,7 @@
     />
 
     <flux-legend />
+    <button @click="emitRgbLayer()">Show Aerial Image</button>
   </div>
 </template>
 
@@ -50,6 +51,7 @@ export default {
       required: true,
     },
   },
+  emits: ["show-rgb-layer"],
   data() {
     return {
       isMonthlyView: true,
@@ -82,6 +84,10 @@ export default {
     },
   },
   methods: {
+    emitRgbLayer() {
+      this.$emit("show-rgb-layer");
+    },
+
     toggleView() {
       this.isMonthlyView = !this.isMonthlyView;
       this.errorMessage = "";
