@@ -30,9 +30,9 @@
       </div>
 
       <!-- Success state -->
-      <div v-else-if="rgbData" class="image-container">
+      <div v-else-if="displayRgbData" class="image-container">
         <img
-          :src="rgbData"
+          :src="displayRgbData"
           alt="Aerial view of building location"
           class="aerial-image"
         />
@@ -64,12 +64,17 @@ const props = defineProps({
 const emit = defineEmits(["show-hourly-shade-layer"]);
 
 // Reactive state
-const rgbData = ref(null);
+const buildingFocusData = ref(null);
+const fullImageData = ref(null);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const buildingFocus = ref(true);
 
-// Computed properties
+// Computed properties to determine which data URL to display
+const displayRgbData = computed(() => {
+  return buildingFocus.value ? buildingFocusData.value : fullImageData.value;
+});
+
 const location = computed(() => {
   // First check solarData.data.center
   if (props.solarData?.data?.center) {
@@ -104,7 +109,6 @@ const fetchRgbData = async () => {
           longitude: location.value.longitude,
         },
         radius: 50,
-        buildingFocus: buildingFocus.value,
       }),
       credentials: "include",
     });
@@ -118,20 +122,38 @@ const fetchRgbData = async () => {
     }
 
     const data = await response.json();
-
     console.log("rgb data: ", data);
-    if (data.dataUrl) {
-      rgbData.value = data.dataUrl;
+
+    if (
+      data.dataUrls &&
+      (data.dataUrls.buildingFocus || data.dataUrls.fullImage)
+    ) {
+      // Store both datasets
+      buildingFocusData.value = data.dataUrls.buildingFocus;
+      fullImageData.value = data.dataUrls.fullImage;
+
+      // If one dataset is missing, use the other for both
+      if (!buildingFocusData.value && fullImageData.value) {
+        buildingFocusData.value = fullImageData.value;
+      } else if (!fullImageData.value && buildingFocusData.value) {
+        fullImageData.value = buildingFocusData.value;
+      }
+    } else if (data.dataUrl) {
+      // Handle backward compatibility with older API
+      buildingFocusData.value = data.dataUrl;
+      fullImageData.value = data.dataUrl;
     } else if (data.visualizations) {
-      // Handle different response format
-      rgbData.value = data.visualizations;
+      // Handle alternative response format
+      buildingFocusData.value = data.visualizations;
+      fullImageData.value = data.visualizations;
     } else {
       throw new Error("No aerial imagery available for this location");
     }
   } catch (error) {
     console.error("Error fetching RGB data:", error);
     errorMessage.value = error.message || "Failed to load aerial imagery";
-    rgbData.value = null;
+    buildingFocusData.value = null;
+    fullImageData.value = null;
   } finally {
     isLoading.value = false;
   }
@@ -139,8 +161,7 @@ const fetchRgbData = async () => {
 
 const toggleBuildingFocus = () => {
   buildingFocus.value = !buildingFocus.value;
-  // Re-fetch data with new building focus setting
-  fetchRgbData();
+  // No need to re-fetch data with new building focus setting
 };
 
 // Lifecycle hooks and watchers

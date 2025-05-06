@@ -40,7 +40,10 @@
       </div>
 
       <!-- Success state -->
-      <div v-else-if="hourlyData.length > 0" class="hourly-data-container">
+      <div
+        v-else-if="displayHourlyData.length > 0"
+        class="hourly-data-container"
+      >
         <div class="hour-slider">
           <label for="hour-slider"
             >Hour: {{ formatHour(selectedHourIndex) }}</label
@@ -55,7 +58,7 @@
         </div>
         <div class="image-container">
           <img
-            :src="hourlyData[selectedHourIndex]"
+            :src="displayHourlyData[selectedHourIndex]"
             alt="Hourly shade pattern visualization"
             class="shade-image"
           />
@@ -85,7 +88,8 @@ const props = defineProps({
 });
 
 // Reactive state
-const hourlyData = ref([]);
+const fullImageData = ref([]);
+const buildingFocusData = ref([]);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const buildingFocus = ref(true);
@@ -118,6 +122,11 @@ const daysInMonth = computed(() => {
   );
 });
 
+// Get current display data based on building focus toggle
+const displayHourlyData = computed(() => {
+  return buildingFocus.value ? buildingFocusData.value : fullImageData.value;
+});
+
 // Computed properties
 const location = computed(() => {
   // First check solarData.data.center
@@ -143,7 +152,7 @@ const formatHour = (hour) => {
 // Toggle building focus
 const toggleBuildingFocus = () => {
   buildingFocus.value = !buildingFocus.value;
-  fetchHourlyShade();
+  // No need to fetch data again, just toggle between already loaded datasets
 };
 
 // Fetch hourly shade data
@@ -162,7 +171,6 @@ const fetchHourlyShade = async () => {
           longitude: location.value.longitude,
         },
         radius: 50,
-        buildingFocus: buildingFocus.value,
         month: selectedMonth.value,
         day: selectedDay.value,
       }),
@@ -179,15 +187,45 @@ const fetchHourlyShade = async () => {
 
     const data = await response.json();
 
-    if (data.hourlyDataUrls && data.hourlyDataUrls.length > 0) {
-      hourlyData.value = data.hourlyDataUrls;
+    // Check if we have hourly data URLs
+    if (
+      data.hourlyDataUrls &&
+      (Array.isArray(data.hourlyDataUrls.buildingFocus) ||
+        Array.isArray(data.hourlyDataUrls.fullImage))
+    ) {
+      // Store both datasets separately
+      buildingFocusData.value = data.hourlyDataUrls.buildingFocus || [];
+      fullImageData.value = data.hourlyDataUrls.fullImage || [];
+
+      // If one dataset is missing, use the other for both
+      if (
+        buildingFocusData.value.length === 0 &&
+        fullImageData.value.length > 0
+      ) {
+        buildingFocusData.value = fullImageData.value;
+      } else if (
+        fullImageData.value.length === 0 &&
+        buildingFocusData.value.length > 0
+      ) {
+        fullImageData.value = buildingFocusData.value;
+      }
+
+      // If both empty, throw error
+      if (
+        buildingFocusData.value.length === 0 &&
+        fullImageData.value.length === 0
+      ) {
+        throw new Error("No hourly shade data available for this location");
+      }
     } else {
-      throw new Error("No hourly shade data available for this location");
+      console.log("Data received: ", data);
+      throw new Error("Invalid data format received from server");
     }
   } catch (error) {
     console.error("Error fetching hourly shade data:", error);
     errorMessage.value = error.message || "Failed to load hourly shade data";
-    hourlyData.value = [];
+    buildingFocusData.value = [];
+    fullImageData.value = [];
   } finally {
     isLoading.value = false;
   }
