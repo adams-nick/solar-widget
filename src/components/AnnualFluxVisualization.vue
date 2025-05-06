@@ -2,8 +2,8 @@
   <div class="annual-flux-visualization">
     <div class="flux-container">
       <img
-        v-if="annualDataLoaded && annualData"
-        :src="annualData"
+        v-if="annualDataLoaded && annualImageSrc"
+        :src="annualImageSrc"
         class="flux-image"
         alt="Annual solar flux visualization"
       />
@@ -27,7 +27,7 @@ export default {
   },
   props: {
     annualData: {
-      type: String,
+      type: Object,
       default: null,
     },
     isLoading: {
@@ -45,7 +45,10 @@ export default {
   },
   computed: {
     annualDataLoaded() {
-      return !!this.annualData;
+      return this.annualData && this.annualData.rawFlux;
+    },
+    annualImageSrc() {
+      return this.annualDataLoaded ? this.annualData.rawFlux : null;
     },
   },
   watch: {

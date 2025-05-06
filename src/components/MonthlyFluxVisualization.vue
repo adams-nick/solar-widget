@@ -107,6 +107,7 @@ export default {
     monthlyData: {
       immediate: true,
       handler(newData) {
+        console.log("monthly data recieved: ", newData);
         if (!newData && !this.isLoading) {
           this.$emit("fetch-data");
         }

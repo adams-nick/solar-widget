@@ -2,9 +2,12 @@
   <div class="solar-flux-visualization">
     <div class="visualization-header">
       <h2>Solar Potential Visualization</h2>
-      <div class="view-toggle">
+      <div class="controls">
         <button @click="toggleView" class="toggle-button">
           Switch to {{ isMonthlyView ? "Annual" : "Monthly" }} View
+        </button>
+        <button @click="toggleBuildingFocus" class="focus-button">
+          {{ buildingFocus ? "Show Full Area" : "Focus on Building" }}
         </button>
       </div>
     </div>
@@ -13,7 +16,7 @@
     <monthly-flux-visualization
       v-if="isMonthlyView"
       :location="location"
-      :monthly-data="monthlyFluxData"
+      :monthly-data="displayMonthlyFluxData"
       :is-loading="isLoading"
       :error-message="errorMessage"
       @fetch-data="fetchMonthlyFluxData"
@@ -22,7 +25,7 @@
     <annual-flux-visualization
       v-else
       :location="location"
-      :annual-data="annualFluxData"
+      :annual-data="displayAnnualFluxData"
       :is-loading="isLoading"
       :error-message="errorMessage"
       @fetch-data="fetchAnnualFluxData"
@@ -55,8 +58,16 @@ export default {
   data() {
     return {
       isMonthlyView: true,
-      monthlyFluxData: null,
-      annualFluxData: null,
+      // Store both building focus and full image versions
+      monthlyFluxData: {
+        buildingFocus: null,
+        fullImage: null,
+      },
+      annualFluxData: {
+        buildingFocus: null,
+        fullImage: null,
+      },
+      buildingFocus: true,
       isLoading: false,
       errorMessage: "",
     };
@@ -73,6 +84,19 @@ export default {
       }
       // Default
       return { latitude: 37.7749, longitude: -122.4194 };
+    },
+    // Determine which dataset to display based on building focus toggle
+    displayMonthlyFluxData() {
+      if (!this.monthlyFluxData) return null;
+      return this.buildingFocus
+        ? this.monthlyFluxData.buildingFocus
+        : this.monthlyFluxData.fullImage;
+    },
+    displayAnnualFluxData() {
+      if (!this.annualFluxData) return null;
+      return this.buildingFocus
+        ? this.annualFluxData.buildingFocus
+        : this.annualFluxData.fullImage;
     },
   },
   watch: {
@@ -92,6 +116,11 @@ export default {
       this.isMonthlyView = !this.isMonthlyView;
       this.errorMessage = "";
       this.fetchData();
+    },
+
+    toggleBuildingFocus() {
+      this.buildingFocus = !this.buildingFocus;
+      // No need to re-fetch data as we already have both versions
     },
 
     fetchData() {
@@ -131,12 +160,30 @@ export default {
         }
 
         const data = await response.json();
+        console.log("monthly data: ", data);
 
-        if (data.visualizations && Array.isArray(data.visualizations)) {
-          this.monthlyFluxData = data.visualizations;
-        } else if (data.monthlyDataUrls && data.monthlyDataUrls.length > 0) {
-          // Handle legacy response format
-          this.monthlyFluxData = data.monthlyDataUrls;
+        if (
+          data.monthlyDataUrls &&
+          (data.monthlyDataUrls.buildingFocus || data.monthlyDataUrls.fullImage)
+        ) {
+          // Only handle new response format with both building focus and full image
+          this.monthlyFluxData = {
+            buildingFocus: data.monthlyDataUrls.buildingFocus || [],
+            fullImage: data.monthlyDataUrls.fullImage || [],
+          };
+
+          // If one dataset is missing, use the other for both
+          if (
+            !this.monthlyFluxData.buildingFocus.length &&
+            this.monthlyFluxData.fullImage.length
+          ) {
+            this.monthlyFluxData.buildingFocus = this.monthlyFluxData.fullImage;
+          } else if (
+            !this.monthlyFluxData.fullImage.length &&
+            this.monthlyFluxData.buildingFocus.length
+          ) {
+            this.monthlyFluxData.fullImage = this.monthlyFluxData.buildingFocus;
+          }
         } else {
           throw new Error("No solar flux data available for this location");
         }
@@ -144,6 +191,10 @@ export default {
         console.error("Error fetching monthly flux data:", error);
         this.errorMessage =
           error.message || "Failed to load solar visualization data";
+        this.monthlyFluxData = {
+          buildingFocus: null,
+          fullImage: null,
+        };
       } finally {
         this.isLoading = false;
       }
@@ -178,12 +229,30 @@ export default {
         }
 
         const data = await response.json();
+        console.log("annual data: ", data);
 
-        if (data.visualizations && data.visualizations.rawFlux) {
-          this.annualFluxData = data.visualizations.rawFlux;
-        } else if (data.dataUrl) {
-          // Handle legacy response format
-          this.annualFluxData = data.dataUrl;
+        if (
+          data.dataUrls &&
+          (data.dataUrls.buildingFocus || data.dataUrls.fullImage)
+        ) {
+          // Only handle new response format with both building focus and full image
+          this.annualFluxData = {
+            buildingFocus: data.dataUrls.buildingFocus || null,
+            fullImage: data.dataUrls.fullImage || null,
+          };
+
+          // If one dataset is missing, use the other for both
+          if (
+            !this.annualFluxData.buildingFocus &&
+            this.annualFluxData.fullImage
+          ) {
+            this.annualFluxData.buildingFocus = this.annualFluxData.fullImage;
+          } else if (
+            !this.annualFluxData.fullImage &&
+            this.annualFluxData.buildingFocus
+          ) {
+            this.annualFluxData.fullImage = this.annualFluxData.buildingFocus;
+          }
         } else {
           throw new Error(
             "No annual solar flux data available for this location"
@@ -193,6 +262,10 @@ export default {
         console.error("Error fetching annual flux data:", error);
         this.errorMessage =
           error.message || "Failed to load annual solar visualization data";
+        this.annualFluxData = {
+          buildingFocus: null,
+          fullImage: null,
+        };
       } finally {
         this.isLoading = false;
       }
@@ -218,7 +291,13 @@ export default {
   border-bottom: 1px solid #ddd;
 }
 
-.toggle-button {
+.controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toggle-button,
+.focus-button {
   background-color: #4caf50;
   color: white;
   border: none;
@@ -229,7 +308,8 @@ export default {
   font-weight: bold;
 }
 
-.toggle-button:hover {
+.toggle-button:hover,
+.focus-button:hover {
   background-color: #388e3c;
 }
 </style>
