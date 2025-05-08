@@ -118,6 +118,7 @@ const resetToMap = () => {
     <HourlyShadeVisualization
       :solarData="solarData"
       v-else-if="currentStep === 'hourly-shade-layer'"
+      @showResults="currentStep = 'results'"
     />
   </div>
 </template>

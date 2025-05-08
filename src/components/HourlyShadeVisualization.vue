@@ -73,6 +73,7 @@
         </button>
       </div>
     </div>
+    <button @click="emitResults">Show Solar Generation Data</button>
   </div>
 </template>
 
@@ -86,6 +87,8 @@ const props = defineProps({
     required: true,
   },
 });
+
+const emit = defineEmits(["show-results"]);
 
 // Reactive state
 const fullImageData = ref([]);
@@ -153,6 +156,10 @@ const formatHour = (hour) => {
 const toggleBuildingFocus = () => {
   buildingFocus.value = !buildingFocus.value;
   // No need to fetch data again, just toggle between already loaded datasets
+};
+
+const emitResults = () => {
+  emit("show-results");
 };
 
 // Fetch hourly shade data
