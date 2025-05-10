@@ -32,6 +32,7 @@ const hasRoofSegments = computed(() => {
 // Get roof segments data
 const roofSegments = computed(() => {
   if (hasRoofSegments.value) {
+    console.log("roof segments: ", props.solarData.roofSegments.data);
     return props.solarData.roofSegments.data || [];
   }
   return [];

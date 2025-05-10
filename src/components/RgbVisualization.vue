@@ -46,12 +46,16 @@
         </button>
       </div>
     </div>
+
+    <!-- Add the Roof Segmentation component -->
+    <RoofSegmentation :solarData="solarData" :displayRgbData="displayRgbData" />
   </div>
   <button @click="emitHourlyShade()">Show Hourly Shade layer</button>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
+import RoofSegmentation from "./RoofSegmentation.vue";
 
 // Props
 const props = defineProps({
