@@ -9,6 +9,7 @@
         <button v-if="errorMessage" @click="processRoofSegments()">
           Retry
         </button>
+        <button @click="printSolarData()">Console Data</button>
       </div>
     </div>
 
@@ -69,12 +70,17 @@
         </p>
       </div>
     </div>
+
+    <div v-if="visualizationSrc">
+      <h3>Bounding Box Visualization</h3>
+      <img :src="visualizationSrc" alt="Bounding Box Visualization" />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue";
-
+import { createBoundingBoxVisualization } from "./visualization.js";
 // Props
 const props = defineProps({
   solarData: {
@@ -87,6 +93,10 @@ const props = defineProps({
   },
 });
 
+const printSolarData = () => {
+  console.log("solar data -  ", props.solarData);
+};
+
 // Reactive state
 const isLoading = ref(false);
 const errorMessage = ref("");
@@ -94,6 +104,7 @@ const segmentationResult = ref(null);
 const imageWidth = ref(600);
 const imageHeight = ref(400);
 const imageRef = ref(null);
+const visualizationSrc = ref("");
 
 // Format polygon points for SVG
 const formatPolygonPoints = (polygon) => {
@@ -178,6 +189,32 @@ const processRoofSegments = async () => {
     // Extract base64 image data
     const base64Image = extractBase64FromDataUrl(props.displayRgbData);
 
+    // Get image dimensions from the image reference
+    const imageDimensions = getImageDimensions(imageRef);
+
+    // Convert coordinates using the dimensions
+    const roofSegments = props.solarData?.roofSegments?.data || [];
+    const buildingCenter = props.solarData?.data?.center;
+    const buildingBoundingBox = props.solarData?.data?.boundingBox;
+    const pixelCoordinates = convertGeoToPixel({
+      imgWidth: imageDimensions.width,
+      imgHeight: imageDimensions.height,
+      buildingBoundingBox,
+      buildingCenter,
+      roofSegments,
+    });
+
+    console.log("passing roof segments to visualizer: ", pixelCoordinates);
+    const vizDataUrl = await createBoundingBoxVisualization({
+      imageData: base64Image,
+      buildingBox: pixelCoordinates.buildingBox,
+      roofSegments: pixelCoordinates.roofSegments,
+      width: imageDimensions.width,
+      height: imageDimensions.height,
+    });
+    // Set the visualization source
+    visualizationSrc.value = vizDataUrl;
+
     // Send the request to your API endpoint
     const baseUrl = window.location.origin;
     const response = await fetch(`${baseUrl}/api/v1/roof/segments`, {
@@ -187,6 +224,9 @@ const processRoofSegments = async () => {
         buildingId: props.solarData?.data?.id || "unknown-building",
         rgbImage: base64Image, // Send base64 directly
         buildingBox: buildingBox.value,
+        roofSegments: pixelCoordinates.roofSegments,
+        buildingBoundingBox: pixelCoordinates.buildingBox,
+        buildingCenter: pixelCoordinates.buildingCenter,
       }),
       credentials: "include",
     });
@@ -209,6 +249,186 @@ const processRoofSegments = async () => {
     isLoading.value = false;
   }
 };
+
+/**
+ * Gets the actual dimensions of an image from a Vue ref
+ * @param {Object} imageRef - Vue ref object pointing to an img element
+ * @param {number} defaultWidth - Default width to use if image dimensions can't be determined
+ * @param {number} defaultHeight - Default height to use if image dimensions can't be determined
+ * @returns {Object} - Object with width and height properties
+ */
+function getImageDimensions(imageRef, defaultWidth = 400, defaultHeight = 224) {
+  // Check if the imageRef exists and is valid
+  if (!imageRef || !imageRef.value) {
+    console.warn(
+      "Image reference is missing or invalid. Using default dimensions."
+    );
+    return { width: defaultWidth, height: defaultHeight };
+  }
+
+  const imgElement = imageRef.value;
+
+  // Use naturalWidth/naturalHeight for the actual image dimensions
+  // These values represent the intrinsic size of the image, not affected by CSS styling
+  if (imgElement.naturalWidth && imgElement.naturalHeight) {
+    return {
+      width: imgElement.naturalWidth,
+      height: imgElement.naturalHeight,
+    };
+  }
+
+  // Fallback to width/height properties if naturalWidth/naturalHeight are not available
+  if (imgElement.width && imgElement.height) {
+    // Check if dimensions appear to be CSS-affected (very small or 0)
+    if (imgElement.width < 10 || imgElement.height < 10) {
+      console.warn(
+        "Image dimensions seem too small, possibly affected by CSS. Using default dimensions."
+      );
+      return { width: defaultWidth, height: defaultHeight };
+    }
+    return {
+      width: imgElement.width,
+      height: imgElement.height,
+    };
+  }
+
+  // If image dimensions can't be determined, use defaults
+  console.warn(
+    "Could not determine image dimensions. Using default dimensions."
+  );
+  return { width: defaultWidth, height: defaultHeight };
+}
+
+/**
+ * Convert geographic coordinates to pixel coordinates for ML server
+ * @param {Object} params - Input parameters
+ * @param {number} params.imgWidth - Image width in pixels
+ * @param {number} params.imgHeight - Image height in pixels
+ * @param {Object} params.buildingBoundingBox - Geographic bounding box of the building
+ * @param {Object} params.buildingCenter - Geographic center of the building
+ * @param {Array} params.roofSegments - Array of roof segment objects with geographic coordinates
+ * @returns {Object} - Converted coordinates for ML server
+ */
+function convertGeoToPixel(params) {
+  const {
+    imgWidth,
+    imgHeight,
+    buildingBoundingBox,
+    buildingCenter,
+    roofSegments,
+  } = params;
+
+  // Function to convert a single geographic coordinate to pixels
+  function geoToPixel(lat, lng, bounds) {
+    // If bounds are not available, return center of image
+    if (!bounds || !bounds.ne || !bounds.sw) {
+      return { x: imgWidth / 2, y: imgHeight / 2 };
+    }
+
+    // Calculate pixel coordinates
+    // Note: In images, Y increases downward
+    const x =
+      ((lng - bounds.sw.longitude) /
+        (bounds.ne.longitude - bounds.sw.longitude)) *
+      imgWidth;
+    const y =
+      ((bounds.ne.latitude - lat) / (bounds.ne.latitude - bounds.sw.latitude)) *
+      imgHeight;
+
+    return {
+      x: Math.min(Math.max(0, Math.round(x)), imgWidth - 1),
+      y: Math.min(Math.max(0, Math.round(y)), imgHeight - 1),
+    };
+  }
+
+  // Convert building center to pixel coordinates
+  let buildingCenterPixel = { x: imgWidth / 2, y: imgHeight / 2 };
+  if (buildingCenter && buildingCenter.latitude && buildingCenter.longitude) {
+    buildingCenterPixel = geoToPixel(
+      buildingCenter.latitude,
+      buildingCenter.longitude,
+      buildingBoundingBox
+    );
+  }
+
+  // Convert building bounding box to pixel coordinates
+  let buildingBoxPixel = {
+    min_x: 0,
+    min_y: 0,
+    max_x: imgWidth - 1,
+    max_y: imgHeight - 1,
+  };
+
+  if (buildingBoundingBox && buildingBoundingBox.sw && buildingBoundingBox.ne) {
+    const swPixel = geoToPixel(
+      buildingBoundingBox.sw.latitude,
+      buildingBoundingBox.sw.longitude,
+      buildingBoundingBox
+    );
+    const nePixel = geoToPixel(
+      buildingBoundingBox.ne.latitude,
+      buildingBoundingBox.ne.longitude,
+      buildingBoundingBox
+    );
+
+    buildingBoxPixel = {
+      min_x: Math.min(swPixel.x, nePixel.x),
+      min_y: Math.min(swPixel.y, nePixel.y),
+      max_x: Math.max(swPixel.x, nePixel.x),
+      max_y: Math.max(swPixel.y, nePixel.y),
+    };
+  }
+
+  // Convert roof segments to pixel coordinates
+  const roofSegmentsPixel = [];
+
+  if (Array.isArray(roofSegments)) {
+    for (const segment of roofSegments) {
+      if (
+        segment.boundingBox &&
+        segment.boundingBox.sw &&
+        segment.boundingBox.ne
+      ) {
+        const swPixel = geoToPixel(
+          segment.boundingBox.sw.latitude,
+          segment.boundingBox.sw.longitude,
+          buildingBoundingBox
+        );
+        const nePixel = geoToPixel(
+          segment.boundingBox.ne.latitude,
+          segment.boundingBox.ne.longitude,
+          buildingBoundingBox
+        );
+
+        const segmentPixel = {
+          id: segment.id,
+          min_x: Math.min(swPixel.x, nePixel.x),
+          min_y: Math.min(swPixel.y, nePixel.y),
+          max_x: Math.max(swPixel.x, nePixel.x),
+          max_y: Math.max(swPixel.y, nePixel.y),
+        };
+
+        // Copy other properties
+        if (segment.azimuth !== undefined)
+          segmentPixel.azimuth = segment.azimuth;
+        if (segment.pitch !== undefined) segmentPixel.pitch = segment.pitch;
+        if (segment.isGroup !== undefined)
+          segmentPixel.is_group = segment.isGroup;
+
+        roofSegmentsPixel.push(segmentPixel);
+      }
+    }
+  }
+
+  // Return the converted values
+  return {
+    buildingCenter: buildingCenterPixel,
+    buildingBox: buildingBoxPixel,
+    roofSegments: roofSegmentsPixel,
+    imageWidth: imgWidth,
+    imageHeight: imgHeight,
+  };
+}
 
 // Lifecycle hooks and watchers
 onMounted(async () => {
