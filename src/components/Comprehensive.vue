@@ -1,10 +1,3 @@
-<!--
-  ComprehensiveAnalysis.vue
-  
-  A Vue component that handles the comprehensive solar analysis
-  with progressive visualization updates via SSE.
--->
-
 <template>
   <div class="comprehensive-analysis">
     <!-- Analysis status and progress -->
@@ -73,6 +66,83 @@
         </div>
       </div>
 
+      <!-- ML Roof Segments (shows when available) -->
+      <div v-if="hasMLRoofSegments" class="ml-roof-segments">
+        <h3>ML Roof Analysis</h3>
+        <p>ML response received with {{ mlSegmentsCount }} segments</p>
+
+        <!-- Actual SVG visualization of ML roof segments -->
+        <svg
+          width="400"
+          height="300"
+          style="border: 1px solid #ccc; margin-top: 10px"
+          class="segments-svg"
+          viewBox="0 0 400 300"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <!-- Draw each polygon if it has enough points -->
+          <g v-for="segment in validSegments" :key="segment.id">
+            <polygon
+              :points="formatPolygonPoints(segment.polygon)"
+              :fill="getSegmentColor(segment)"
+              fill-opacity="0.5"
+              stroke="#ffffff"
+              stroke-width="2"
+            />
+          </g>
+
+          <!-- Draw obstructions if they exist -->
+          <g
+            v-for="segment in validSegments.filter((s) => s.has_obstruction)"
+            :key="`obs-${segment.id}`"
+          >
+            <polygon
+              v-if="segment.obstructions && segment.obstructions.length > 0"
+              v-for="obstruction in validObstructions(segment)"
+              :key="`${segment.id}-${obstruction.id}`"
+              :points="formatPolygonPoints(obstruction.polygon)"
+              fill="#e74c3c"
+              fill-opacity="0.7"
+              stroke="#ff0000"
+              stroke-width="1"
+            />
+          </g>
+        </svg>
+
+        <div class="segment-legend">
+          <div class="legend-item">
+            <div class="color-box" style="background-color: #3498db"></div>
+            <span>Roof Segment</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background-color: #e74c3c"></div>
+            <span>Obstruction</span>
+          </div>
+        </div>
+
+        <div class="ml-data-summary">
+          <h4>Segment Data</h4>
+          <div class="segment-stats-grid">
+            <div
+              v-for="segment in validSegments.slice(0, 4)"
+              :key="`stat-${segment.id}`"
+              class="segment-stat-item"
+            >
+              <div class="segment-stat-header">{{ segment.id }}</div>
+              <div class="segment-stat-value">
+                Area: {{ formatArea(segment.area) }}
+              </div>
+              <div class="segment-stat-value">
+                Confidence: {{ (segment.confidence * 100).toFixed(1) }}%
+              </div>
+            </div>
+          </div>
+          <p v-if="validSegments.length > 4" class="more-segments">
+            And {{ validSegments.length - 4 }} more segments...
+          </p>
+        </div>
+      </div>
+
       <!-- Roof segments (shows when available) -->
       <div v-if="hasRoofSegments" class="roof-segments">
         <h3>Roof Analysis</h3>
@@ -131,7 +201,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 
 // Hardcoded API URL
 const API_BASE_URL = "http://localhost:3000";
@@ -169,6 +239,10 @@ const visualizations = ref({});
 const buildingInsights = ref(null);
 const completionDuration = ref(0);
 
+// ML specific refs
+const mlRoofData = ref(null);
+const mlSegmentsCount = ref(0);
+
 // Computed properties
 const isConnecting = computed(() => status.value === "connecting");
 const isActive = computed(() => status.value === "active");
@@ -178,11 +252,12 @@ const isAnalysisRunning = computed(() => isConnecting.value || isActive.value);
 
 // Visualization availability
 const hasRgbImage = computed(() => !!visualizations.value.rgb);
-const hasRoofSegments = computed(() => {
-  console.log(visualizations.value.roofSegments);
-  return !!visualizations.value.roofSegments;
-});
+const hasRoofSegments = computed(() => !!visualizations.value.roofSegments);
 const hasMonthlyFlux = computed(() => !!visualizations.value.monthlyFlux);
+const hasMLRoofSegments = computed(() => {
+  console.log("Checking hasMLRoofSegments, data:", mlRoofData.value);
+  return !!mlRoofData.value;
+});
 
 // Convenience getters
 const rgbImageUrl = computed(() => {
@@ -193,6 +268,71 @@ const rgbImageUrl = computed(() => {
     ""
   );
 });
+
+// Get valid segments for drawing (with at least 3 points in polygon)
+const validSegments = computed(() => {
+  if (!mlRoofData.value || !mlRoofData.value.segments) {
+    return [];
+  }
+
+  return mlRoofData.value.segments.filter(
+    (segment) => segment.polygon && segment.polygon.length > 2
+  );
+});
+
+// Get valid obstructions for a segment
+const validObstructions = (segment) => {
+  if (!segment.obstructions) return [];
+
+  return segment.obstructions.filter(
+    (obstruction) => obstruction.polygon && obstruction.polygon.length > 2
+  );
+};
+
+// Format polygon points for SVG
+const formatPolygonPoints = (points) => {
+  return points.map((p) => `${p.x},${p.y}`).join(" ");
+};
+
+// Generate a color for a segment based on its ID
+const getSegmentColor = (segment) => {
+  // Array of colors for segments
+  const colors = [
+    "#3498db",
+    "#2ecc71",
+    "#9b59b6",
+    "#f1c40f",
+    "#e67e22",
+    "#1abc9c",
+    "#34495e",
+    "#7f8c8d",
+  ];
+
+  // Extract a number from the ID to use as an index
+  const idNum = parseInt(segment.id.replace(/\D/g, "")) || 0;
+  return colors[idNum % colors.length];
+};
+
+// Watch for ML data changes
+watch(
+  visualizations,
+  (newVal) => {
+    console.log("Visualizations updated:", Object.keys(newVal));
+    if (newVal.mlRoofSegments) {
+      console.log("ML Roof Segments found:", newVal.mlRoofSegments);
+      mlRoofData.value = newVal.mlRoofSegments;
+
+      // Count segments if available
+      if (newVal.mlRoofSegments.segments) {
+        mlSegmentsCount.value = newVal.mlRoofSegments.segments.length;
+        console.log(`Found ${mlSegmentsCount.value} ML roof segments`);
+      } else {
+        console.log("ML data exists but no segments found");
+      }
+    }
+  },
+  { deep: true }
+);
 
 // Methods
 /**
@@ -284,6 +424,8 @@ const resetState = () => {
   visualizations.value = {};
   buildingInsights.value = null;
   completionDuration.value = 0;
+  mlRoofData.value = null;
+  mlSegmentsCount.value = 0;
 };
 
 /**
@@ -346,6 +488,18 @@ const handleVisualizationEvent = (event) => {
   // Store the visualization
   visualizations.value[data.type] = data;
 
+  // Special handling for ML data
+  if (data.type === "mlRoofSegments") {
+    console.log("ML ROOF SEGMENTS RECEIVED:", data);
+    mlRoofData.value = data;
+    if (data.segments) {
+      mlSegmentsCount.value = data.segments.length;
+      console.log(
+        `Found ${mlSegmentsCount.value} ML roof segments in event handler`
+      );
+    }
+  }
+
   // Update progress
   progress.value = data.progress || progress.value;
   progressMessage.value = `Processed ${data.type} visualization`;
@@ -403,6 +557,7 @@ const formatDuration = (ms) => {
 
 // Lifecycle hooks
 onMounted(() => {
+  console.log("Component mounted, autoStart:", props.autoStart);
   if (props.autoStart) {
     startAnalysis();
   }
@@ -531,7 +686,8 @@ defineExpose({
 .rgb-container,
 .building-insights,
 .roof-segments,
-.monthly-flux {
+.monthly-flux,
+.ml-roof-segments {
   padding: 1rem;
   background-color: white;
   border-radius: 8px;
@@ -544,6 +700,78 @@ defineExpose({
   width: 100%;
   border-radius: 4px;
   margin-top: 0.5rem;
+}
+
+.ml-data {
+  margin-top: 10px;
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.segments-svg {
+  width: 100%;
+  height: auto;
+  background-color: #f8f9fa;
+}
+
+.segment-legend {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.color-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.ml-data-summary {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.segment-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.segment-stat-item {
+  padding: 0.5rem;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.segment-stat-header {
+  font-weight: bold;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+
+.segment-stat-value {
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.more-segments {
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.5rem;
+  text-align: center;
 }
 
 .info-grid {
