@@ -8,7 +8,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["showSolarLayer", "segmentSelected"]);
+const emit = defineEmits(["switchView"]);
 
 // Active tab state
 const activeTab = ref("summary");
@@ -21,7 +21,7 @@ const colorMode = ref("suitability");
 
 // Extract data from the API response
 const solarPotential = computed(() => {
-  return props.solarData.data.solarPotential || {};
+  return props.solarData.buildingInsights.solarPotential || {};
 });
 
 // Check if roof segments are available
@@ -55,25 +55,19 @@ const sortedSegments = computed(() => {
   });
 });
 
-// Function to handle segment selection
-function selectSegment(segmentId) {
-  selectedSegmentId.value = segmentId;
-  emit("segmentSelected", segmentId);
-}
-
 // Function to change color mode
 function changeColorMode(mode) {
   colorMode.value = mode;
 }
 
 // Function to show solar layer
-function requestQuote() {
-  emit("showSolarLayer");
+function switchView(view) {
+  emit("switchView", view);
 }
 
 // Calculate financial summaries
 const financialSummary = computed(() => {
-  const solarPotential = props.solarData.data.solarPotential;
+  const solarPotential = props.solarData.buildingInsights.solarPotential;
   if (!solarPotential) return null;
 
   // Find the best panel configuration
@@ -199,7 +193,7 @@ function getSegmentEnergy(segment) {
   <div class="solar-results">
     <h3>Solar Potential Results</h3>
 
-    <div v-if="solarData && solarData.data">
+    <div v-if="solarData && solarData.buildingInsights">
       <!-- Tab navigation -->
       <div class="tab-navigation">
         <button
@@ -221,15 +215,36 @@ function getSegmentEnergy(segment) {
       <div v-if="activeTab === 'summary'" class="tab-content">
         <div class="summary-panel">
           <div class="summary-item">
+            <h4>Data Layer response</h4>
+            <div v-if="solarData && solarData.dataLayers">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>Has Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(value, key) in solarData.dataLayers" :key="key">
+                    <td>{{ key }}</td>
+                    <td>{{ value ? "Y" : "N" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else>No data layers available</p>
+          </div>
+          <div class="summary-item">
             <h4>Building Information</h4>
             <p>
               <strong>Location:</strong>
-              {{ solarData.data.center.latitude.toFixed(6) }},
-              {{ solarData.data.center.longitude.toFixed(6) }}
+              {{ solarData.buildingInsights.center.latitude.toFixed(6) }},
+              {{ solarData.buildingInsights.center.longitude.toFixed(6) }}
             </p>
-            <p v-if="solarData.data.postalCode">
-              <strong>Area:</strong> {{ solarData.data.postalCode }},
-              {{ solarData.data.administrativeArea }}
+            <p v-if="solarData.buildingInsights.postalCode">
+              <strong>Area:</strong>
+              {{ solarData.buildingInsights.postalCode }},
+              {{ solarData.buildingInsights.administrativeArea }}
             </p>
           </div>
 
@@ -372,7 +387,6 @@ function getSegmentEnergy(segment) {
                   'segment-item',
                   { active: selectedSegmentId === segment.id },
                 ]"
-                @click="selectSegment(segment.id)"
               >
                 <div class="segment-header">
                   <span class="segment-id">Segment {{ segment.id + 1 }}</span>
@@ -428,13 +442,21 @@ function getSegmentEnergy(segment) {
       </div>
 
       <div class="cta-panel">
-        <button class="cta-button" @click="requestQuote">
-          Request Detailed Quote
+        <button class="cta-button" @click="switchView('flux')">
+          Monthly & Annual Sunlight
+        </button>
+        <button class="cta-button" @click="switchView('hourly')">
+          Hourly Shade
+        </button>
+        <button class="cta-button" @click="switchView('aerial')">
+          Aerial Image
         </button>
       </div>
     </div>
 
-    <div v-else class="error-message">No solar data available</div>
+    <div v-else class="error-message">
+      No solar data available {{ solarData }}
+    </div>
   </div>
 </template>
 
@@ -721,6 +743,7 @@ function getSegmentEnergy(segment) {
     color: white;
     border: none;
     padding: 12px 24px;
+    margin-inline: 2px;
     border-radius: 4px;
     font-size: 16px;
     cursor: pointer;

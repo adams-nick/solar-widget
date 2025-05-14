@@ -32,7 +32,7 @@
     />
 
     <flux-legend />
-    <button @click="emitRgbLayer()">Show Aerial Image</button>
+    <button @click="emitGoBack()">Go Back</button>
   </div>
 </template>
 
@@ -54,7 +54,7 @@ export default {
       required: true,
     },
   },
-  emits: ["show-rgb-layer"],
+  emits: ["goBack"],
   data() {
     return {
       isMonthlyView: true,
@@ -75,8 +75,12 @@ export default {
   computed: {
     location() {
       // First check solarData.data.center
-      if (this.solarData && this.solarData.data && this.solarData.data.center) {
-        return this.solarData.data.center;
+      if (
+        this.solarData &&
+        this.solarData.buildingInsights &&
+        this.solarData.buildingInsights.center
+      ) {
+        return this.solarData.buildingInsights.center;
       }
       // Fall back to solarData.center
       if (this.solarData && this.solarData.center) {
@@ -108,8 +112,8 @@ export default {
     },
   },
   methods: {
-    emitRgbLayer() {
-      this.$emit("show-rgb-layer");
+    emitGoBack() {
+      this.$emit("goBack");
     },
 
     toggleView() {

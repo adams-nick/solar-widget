@@ -50,7 +50,7 @@
     <!-- Add the Roof Segmentation component -->
     <RoofSegmentation :solarData="solarData" :displayRgbData="displayRgbData" />
   </div>
-  <button @click="emitHourlyShade()">Show Hourly Shade layer</button>
+  <button @click="emitGoBack()">Go back</button>
 </template>
 
 <script setup>
@@ -65,7 +65,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["show-hourly-shade-layer"]);
+const emit = defineEmits(["goBack"]);
 
 // Reactive state
 const buildingFocusData = ref(null);
@@ -81,8 +81,8 @@ const displayRgbData = computed(() => {
 
 const location = computed(() => {
   // First check solarData.data.center
-  if (props.solarData?.data?.center) {
-    return props.solarData.data.center;
+  if (props.solarData?.buildingInsights?.center) {
+    return props.solarData.buildingInsights.center;
   }
   // Fall back to solarData.center
   if (props.solarData?.center) {
@@ -93,9 +93,8 @@ const location = computed(() => {
 });
 
 // Methods
-const emitHourlyShade = () => {
-  console.log("emitting to go to hourly shade");
-  emit("show-hourly-shade-layer");
+const emitGoBack = () => {
+  emit("goBack");
 };
 
 const fetchRgbData = async () => {
@@ -135,21 +134,6 @@ const fetchRgbData = async () => {
       // Store both datasets
       buildingFocusData.value = data.dataUrls.buildingFocus;
       fullImageData.value = data.dataUrls.fullImage;
-
-      // If one dataset is missing, use the other for both
-      if (!buildingFocusData.value && fullImageData.value) {
-        buildingFocusData.value = fullImageData.value;
-      } else if (!fullImageData.value && buildingFocusData.value) {
-        fullImageData.value = buildingFocusData.value;
-      }
-    } else if (data.dataUrl) {
-      // Handle backward compatibility with older API
-      buildingFocusData.value = data.dataUrl;
-      fullImageData.value = data.dataUrl;
-    } else if (data.visualizations) {
-      // Handle alternative response format
-      buildingFocusData.value = data.visualizations;
-      fullImageData.value = data.visualizations;
     } else {
       throw new Error("No aerial imagery available for this location");
     }

@@ -6,6 +6,8 @@ import SolarResults from "./SolarResults.vue";
 import SolarFluxDataLayer from "./SolarFluxDataLayer.vue";
 import RgbVisualization from "./RgbVisualization.vue";
 import HourlyShadeVisualization from "./HourlyShadeVisualization.vue";
+import RoofMaskVisualization from "./RoofMaskVisualization.vue";
+import Comprehensive from "./Comprehensive.vue";
 
 const currentStep = ref("form"); // 'form', 'map', or 'results'
 const locationData = ref(null);
@@ -76,11 +78,19 @@ const resetToMap = () => {
 
 <template>
   <div class="modal-body">
+    {{ currentStep }}
     <ScanRequestForm
       v-if="currentStep === 'form'"
       @submit="handleAddressSubmit"
     />
 
+    <Comprehensive
+      v-if="currentStep === 'form'"
+      :location="{
+        latitude: 39.73968535,
+        longitude: -104.9895472,
+      }"
+    />
     <MapConfirmation
       v-else-if="currentStep === 'map'"
       :locationData="locationData"
@@ -100,25 +110,31 @@ const resetToMap = () => {
     <SolarResults
       v-else-if="currentStep === 'results'"
       :solarData="solarData"
-      @showSolarLayer="currentStep = 'solar-flux-data-layer'"
+      @switchView="currentStep = $event"
+    />
+
+    <RoofMaskVisualization
+      v-else-if="currentStep === 'roof-mask'"
+      :solarData="solarData"
+      @goBack="currentStep = 'results'"
     />
 
     <SolarFluxDataLayer
       :solarData="solarData"
-      @showRgbLayer="currentStep = 'aerial-rgb-layer'"
-      v-else-if="currentStep === 'solar-flux-data-layer'"
+      @goBack="currentStep = 'results'"
+      v-else-if="currentStep === 'flux'"
     />
 
     <RgbVisualization
       :solarData="solarData"
-      @showHourlyShadeLayer="currentStep = 'hourly-shade-layer'"
-      v-else-if="currentStep === 'aerial-rgb-layer'"
+      @goBack="currentStep = 'results'"
+      v-else-if="currentStep === 'aerial'"
     />
 
     <HourlyShadeVisualization
       :solarData="solarData"
-      v-else-if="currentStep === 'hourly-shade-layer'"
-      @showResults="currentStep = 'results'"
+      v-else-if="currentStep === 'hourly'"
+      @goBack="currentStep = 'results'"
     />
   </div>
 </template>

@@ -73,7 +73,7 @@
         </button>
       </div>
     </div>
-    <button @click="emitResults">Show Solar Generation Data</button>
+    <button @click="emitResults">Go back</button>
   </div>
 </template>
 
@@ -88,7 +88,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["show-results"]);
+const emit = defineEmits(["goBack"]);
 
 // Reactive state
 const fullImageData = ref([]);
@@ -133,8 +133,8 @@ const displayHourlyData = computed(() => {
 // Computed properties
 const location = computed(() => {
   // First check solarData.data.center
-  if (props.solarData?.data?.center) {
-    return props.solarData.data.center;
+  if (props.solarData?.buildingInsights?.center) {
+    return props.solarData.buildingInsights.center;
   }
   // Fall back to solarData.center
   if (props.solarData?.center) {
@@ -159,7 +159,7 @@ const toggleBuildingFocus = () => {
 };
 
 const emitResults = () => {
-  emit("show-results");
+  emit("goBack");
 };
 
 // Fetch hourly shade data

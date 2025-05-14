@@ -194,8 +194,8 @@ const processRoofSegments = async () => {
 
     // Convert coordinates using the dimensions
     const roofSegments = props.solarData?.roofSegments?.data || [];
-    const buildingCenter = props.solarData?.data?.center;
-    const buildingBoundingBox = props.solarData?.data?.boundingBox;
+    const buildingCenter = props.solarData?.buildingInsights?.center;
+    const buildingBoundingBox = props.solarData?.buildingInsights?.boundingBox;
     const pixelCoordinates = convertGeoToPixel({
       imgWidth: imageDimensions.width,
       imgHeight: imageDimensions.height,
@@ -221,7 +221,7 @@ const processRoofSegments = async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        buildingId: props.solarData?.data?.id || "unknown-building",
+        buildingId: props.solarData?.buildingInsights?.id || "unknown-building",
         rgbImage: base64Image, // Send base64 directly
         buildingBox: buildingBox.value,
         roofSegments: pixelCoordinates.roofSegments,
