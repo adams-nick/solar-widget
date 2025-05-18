@@ -71,6 +71,24 @@
         <h3>ML Roof Analysis</h3>
         <p>ML response received with {{ mlSegmentsCount }} segments</p>
 
+        <!-- Visualization mode toggle -->
+        <div class="visualization-controls">
+          <button
+            @click="visualizationMode = 'overlay'"
+            :class="{ active: visualizationMode === 'overlay' }"
+            class="viz-mode-button"
+          >
+            Overlay View
+          </button>
+          <button
+            @click="visualizationMode = 'cutout'"
+            :class="{ active: visualizationMode === 'cutout' }"
+            class="viz-mode-button"
+          >
+            Cutout View
+          </button>
+        </div>
+
         <!-- Actual SVG visualization of ML roof segments -->
         <svg
           width="400"
@@ -80,9 +98,33 @@
           viewBox="0 0 400 300"
           preserveAspectRatio="xMidYMid meet"
         >
-          <!-- Draw each polygon if it has enough points -->
+          <defs>
+            <!-- Define clip paths for segments with obstructions -->
+            <template
+              v-for="segment in validSegments.filter((s) => s.has_obstruction)"
+              :key="`clip-${segment.id}`"
+            >
+              <clipPath :id="`clip-${segment.id}`">
+                <path :d="getSegmentPathWithHoles(segment)" />
+              </clipPath>
+            </template>
+          </defs>
+
+          <!-- Draw each roof segment polygon -->
           <g v-for="segment in validSegments" :key="segment.id">
+            <!-- Use clip path for segments with obstructions in cutout mode -->
             <polygon
+              v-if="visualizationMode === 'cutout' && segment.has_obstruction"
+              :points="formatPolygonPoints(segment.polygon)"
+              :fill="getSegmentColor(segment)"
+              fill-opacity="0.7"
+              stroke="#ffffff"
+              stroke-width="2"
+              :clip-path="`url(#clip-${segment.id})`"
+            />
+            <!-- Draw normally for segments without obstructions or in overlay mode -->
+            <polygon
+              v-else
               :points="formatPolygonPoints(segment.polygon)"
               :fill="getSegmentColor(segment)"
               fill-opacity="0.5"
@@ -91,20 +133,29 @@
             />
           </g>
 
-          <!-- Draw obstructions if they exist -->
-          <g
-            v-for="segment in validSegments.filter((s) => s.has_obstruction)"
-            :key="`obs-${segment.id}`"
-          >
+          <!-- Draw obstructions in overlay mode -->
+          <g v-if="visualizationMode === 'overlay'">
             <polygon
-              v-if="segment.obstructions && segment.obstructions.length > 0"
-              v-for="obstruction in validObstructions(segment)"
-              :key="`${segment.id}-${obstruction.id}`"
+              v-for="obstruction in allObstructions"
+              :key="`obs-${obstruction.id}`"
               :points="formatPolygonPoints(obstruction.polygon)"
               fill="#e74c3c"
               fill-opacity="0.7"
               stroke="#ff0000"
               stroke-width="1"
+            />
+          </g>
+
+          <!-- Show dashed outlines around obstructions in cutout mode -->
+          <g v-if="visualizationMode === 'cutout'">
+            <polygon
+              v-for="obstruction in allObstructions"
+              :key="`obs-outline-${obstruction.id}`"
+              :points="formatPolygonPoints(obstruction.polygon)"
+              fill="none"
+              stroke="#ff0000"
+              stroke-width="1.5"
+              stroke-dasharray="3,2"
             />
           </g>
         </svg>
@@ -134,6 +185,15 @@
               </div>
               <div class="segment-stat-value">
                 Confidence: {{ (segment.confidence * 100).toFixed(1) }}%
+              </div>
+              <div
+                v-if="segment.has_obstruction"
+                class="segment-stat-value obstruction-count"
+              >
+                Obstructions:
+                {{
+                  segment.obstruction_count || getObstructionCount(segment.id)
+                }}
               </div>
             </div>
           </div>
@@ -238,6 +298,7 @@ const analysisId = ref(null);
 const visualizations = ref({});
 const buildingInsights = ref(null);
 const completionDuration = ref(0);
+const visualizationMode = ref("overlay"); // overlay or cutout
 
 // ML specific refs
 const mlRoofData = ref(null);
@@ -280,13 +341,57 @@ const validSegments = computed(() => {
   );
 });
 
-// Get valid obstructions for a segment
-const validObstructions = (segment) => {
-  if (!segment.obstructions) return [];
+// Get all valid obstructions
+const allObstructions = computed(() => {
+  if (!mlRoofData.value || !mlRoofData.value.obstructions) {
+    return [];
+  }
 
-  return segment.obstructions.filter(
+  return mlRoofData.value.obstructions.filter(
     (obstruction) => obstruction.polygon && obstruction.polygon.length > 2
   );
+});
+
+// Get obstructions for a specific segment ID
+const getObstructionsForSegment = (segmentId) => {
+  if (!mlRoofData.value || !mlRoofData.value.obstructions) {
+    return [];
+  }
+
+  return mlRoofData.value.obstructions.filter(
+    (obstruction) =>
+      obstruction.parent_segment === segmentId &&
+      obstruction.polygon &&
+      obstruction.polygon.length > 2
+  );
+};
+
+// Count obstructions for a segment
+const getObstructionCount = (segmentId) => {
+  return getObstructionsForSegment(segmentId).length;
+};
+
+// Create an SVG path string that includes holes for obstructions
+const getSegmentPathWithHoles = (segment) => {
+  if (!segment || !segment.polygon) return "";
+
+  // Main segment path - move to first point, then line to each point
+  let path =
+    "M " + segment.polygon.map((p) => `${p.x},${p.y}`).join(" L ") + " Z";
+
+  // Add obstruction paths
+  const obstructions = getObstructionsForSegment(segment.id);
+
+  for (const obstruction of obstructions) {
+    if (obstruction.polygon && obstruction.polygon.length > 2) {
+      path +=
+        " M " +
+        obstruction.polygon.map((p) => `${p.x},${p.y}`).join(" L ") +
+        " Z";
+    }
+  }
+
+  return path;
 };
 
 // Format polygon points for SVG
@@ -313,6 +418,15 @@ const getSegmentColor = (segment) => {
   return colors[idNum % colors.length];
 };
 
+// Helper function for validating obstructions
+const validObstructions = (segment) => {
+  if (!segment.obstructions) return [];
+
+  return segment.obstructions.filter(
+    (obstruction) => obstruction.polygon && obstruction.polygon.length > 2
+  );
+};
+
 // Watch for ML data changes
 watch(
   visualizations,
@@ -325,7 +439,9 @@ watch(
       // Count segments if available
       if (newVal.mlRoofSegments.segments) {
         mlSegmentsCount.value = newVal.mlRoofSegments.segments.length;
-        console.log(`Found ${mlSegmentsCount.value} ML roof segments`);
+        console.log(
+          `Found ${mlSegmentsCount.value} ML roof segments in event handler`
+        );
       } else {
         console.log("ML data exists but no segments found");
       }
@@ -426,6 +542,7 @@ const resetState = () => {
   completionDuration.value = 0;
   mlRoofData.value = null;
   mlSegmentsCount.value = 0;
+  visualizationMode.value = "overlay";
 };
 
 /**
@@ -677,6 +794,28 @@ defineExpose({
   border-radius: 8px;
 }
 
+.visualization-controls {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.viz-mode-button {
+  padding: 0.5rem 1rem;
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.viz-mode-button.active {
+  background-color: #2196f3;
+  color: white;
+  border-color: #1976d2;
+}
+
 .results-container {
   display: flex;
   flex-direction: column;
@@ -765,6 +904,11 @@ defineExpose({
 .segment-stat-value {
   font-size: 0.8rem;
   color: #555;
+}
+
+.obstruction-count {
+  color: #e74c3c;
+  font-weight: 500;
 }
 
 .more-segments {

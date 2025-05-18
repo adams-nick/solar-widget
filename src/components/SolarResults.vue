@@ -451,6 +451,7 @@ function getSegmentEnergy(segment) {
         <button class="cta-button" @click="switchView('aerial')">
           Aerial Image
         </button>
+        <button class="cta-button" @click="switchView('dsm')">Dsm Image</button>
       </div>
     </div>
 

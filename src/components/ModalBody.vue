@@ -8,6 +8,7 @@ import RgbVisualization from "./RgbVisualization.vue";
 import HourlyShadeVisualization from "./HourlyShadeVisualization.vue";
 import RoofMaskVisualization from "./RoofMaskVisualization.vue";
 import Comprehensive from "./Comprehensive.vue";
+import DsmVisualization from "./DsmVisualization.vue";
 
 const currentStep = ref("form"); // 'form', 'map', or 'results'
 const locationData = ref(null);
@@ -129,6 +130,12 @@ const resetToMap = () => {
       :solarData="solarData"
       @goBack="currentStep = 'results'"
       v-else-if="currentStep === 'aerial'"
+    />
+
+    <DsmVisualization
+      :solarData="solarData"
+      @goBack="currentStep = 'results'"
+      v-else-if="currentStep === 'dsm'"
     />
 
     <HourlyShadeVisualization
