@@ -27,7 +27,7 @@ export default {
   },
   props: {
     annualData: {
-      type: Object,
+      type: String,
       default: null,
     },
     isLoading: {
@@ -45,10 +45,11 @@ export default {
   },
   computed: {
     annualDataLoaded() {
-      return this.annualData && this.annualData.rawFlux;
+      return this.annualData;
     },
     annualImageSrc() {
-      return this.annualDataLoaded ? this.annualData.rawFlux : null;
+      console.log("annual data image src: ", this.annualData);
+      return this.annualDataLoaded ? this.annualData : null;
     },
   },
   watch: {

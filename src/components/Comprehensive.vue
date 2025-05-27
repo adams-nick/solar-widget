@@ -32,10 +32,152 @@
 
     <!-- Results are being streamed -->
     <div v-if="hasRgbImage" class="results-container">
-      <!-- First view - RGB image -->
+      <!-- First view - RGB image with overlaid roof segments -->
       <div class="rgb-container">
-        <h3>Aerial View</h3>
-        <img :src="rgbImageUrl" alt="Aerial view" class="rgb-image" />
+        <h3>Aerial View with Roof Analysis</h3>
+
+        <!-- Visualization mode toggle -->
+        <div v-if="hasMLRoofSegments" class="visualization-controls">
+          <button
+            @click="visualizationMode = 'overlay'"
+            :class="{ active: visualizationMode === 'overlay' }"
+            class="viz-mode-button"
+          >
+            Overlay View
+          </button>
+          <button
+            @click="visualizationMode = 'cutout'"
+            :class="{ active: visualizationMode === 'cutout' }"
+            class="viz-mode-button"
+          >
+            Cutout View
+          </button>
+        </div>
+
+        <!-- Combined RGB and SVG overlay container -->
+        <div class="rgb-overlay-container">
+          <!-- RGB Image -->
+          <img
+            ref="rgbImageRef"
+            :src="rgbImageUrl"
+            alt="Aerial view"
+            class="rgb-image"
+            @load="onImageLoad"
+          />
+
+          <!-- SVG Overlay for segments, obstructions, and panels -->
+          <svg
+            v-if="hasMLRoofSegments"
+            class="svg-overlay"
+            :width="imageWidth"
+            :height="imageHeight"
+            :viewBox="`0 0 ${imageWidth} ${imageHeight}`"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <!-- Define clip paths for segments with obstructions -->
+              <template
+                v-for="segment in validSegments.filter(
+                  (s) => s.has_obstruction
+                )"
+                :key="`clip-${segment.id}`"
+              >
+                <clipPath :id="`clip-${segment.id}`">
+                  <path :d="getSegmentPathWithHoles(segment)" />
+                </clipPath>
+              </template>
+            </defs>
+
+            <!-- Draw each roof segment polygon -->
+            <g v-for="segment in validSegments" :key="segment.id">
+              <!-- Use clip path for segments with obstructions in cutout mode -->
+              <polygon
+                v-if="visualizationMode === 'cutout' && segment.has_obstruction"
+                :points="formatPolygonPoints(segment.polygon)"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="2.5"
+                :clip-path="`url(#clip-${segment.id})`"
+              />
+              <!-- Draw normally for segments without obstructions or in overlay mode -->
+              <polygon
+                v-else
+                :points="formatPolygonPoints(segment.polygon)"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="2.5"
+              />
+            </g>
+
+            <!-- Draw obstructions in overlay mode -->
+            <g v-if="visualizationMode === 'overlay'">
+              <polygon
+                v-for="obstruction in allObstructions"
+                :key="`obs-${obstruction.id}`"
+                :points="formatPolygonPoints(obstruction.polygon)"
+                fill="#e74c3c"
+                fill-opacity="0.7"
+                stroke="#ff0000"
+                stroke-width="1"
+              />
+            </g>
+
+            <!-- Draw panel layouts in overlay mode -->
+            <g v-if="visualizationMode === 'overlay'">
+              <polygon
+                v-for="(panel, index) in allPanelLayouts"
+                :key="`panel-${index}`"
+                :points="formatPolygonPoints(panel.polygon)"
+                fill="#000000"
+                fill-opacity="0.6"
+                stroke="#000000"
+                stroke-width="1"
+              />
+            </g>
+
+            <!-- Show dashed outlines around obstructions in cutout mode -->
+            <g v-if="visualizationMode === 'cutout'">
+              <polygon
+                v-for="obstruction in allObstructions"
+                :key="`obs-outline-${obstruction.id}`"
+                :points="formatPolygonPoints(obstruction.polygon)"
+                fill="none"
+                stroke="#ff0000"
+                stroke-width="1.5"
+                stroke-dasharray="3,2"
+              />
+            </g>
+
+            <!-- Show panel layouts in cutout mode -->
+            <g v-if="visualizationMode === 'cutout'">
+              <polygon
+                v-for="(panel, index) in allPanelLayouts"
+                :key="`panel-outline-${index}`"
+                :points="formatPolygonPoints(panel.polygon)"
+                fill="#000000"
+                fill-opacity="0.5"
+                stroke="#000000"
+                stroke-width="1"
+              />
+            </g>
+          </svg>
+        </div>
+
+        <!-- Legend for the overlaid elements -->
+        <div v-if="hasMLRoofSegments" class="segment-legend">
+          <div class="legend-item">
+            <div class="color-box legend-outline"></div>
+            <span>Roof Segment</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background-color: #e74c3c"></div>
+            <span>Obstruction</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background-color: #000000"></div>
+            <span>Solar Panel</span>
+          </div>
+        </div>
       </div>
 
       <!-- Building insights (shows when available) -->
@@ -66,110 +208,10 @@
         </div>
       </div>
 
-      <!-- ML Roof Segments (shows when available) -->
+      <!-- ML Roof Segments Data Summary (shows when available) -->
       <div v-if="hasMLRoofSegments" class="ml-roof-segments">
         <h3>ML Roof Analysis</h3>
-        <p>ML response received with {{ mlSegmentsCount }} segments</p>
-
-        <!-- Visualization mode toggle -->
-        <div class="visualization-controls">
-          <button
-            @click="visualizationMode = 'overlay'"
-            :class="{ active: visualizationMode === 'overlay' }"
-            class="viz-mode-button"
-          >
-            Overlay View
-          </button>
-          <button
-            @click="visualizationMode = 'cutout'"
-            :class="{ active: visualizationMode === 'cutout' }"
-            class="viz-mode-button"
-          >
-            Cutout View
-          </button>
-        </div>
-
-        <!-- Actual SVG visualization of ML roof segments -->
-        <svg
-          width="400"
-          height="300"
-          style="border: 1px solid #ccc; margin-top: 10px"
-          class="segments-svg"
-          viewBox="0 0 400 300"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            <!-- Define clip paths for segments with obstructions -->
-            <template
-              v-for="segment in validSegments.filter((s) => s.has_obstruction)"
-              :key="`clip-${segment.id}`"
-            >
-              <clipPath :id="`clip-${segment.id}`">
-                <path :d="getSegmentPathWithHoles(segment)" />
-              </clipPath>
-            </template>
-          </defs>
-
-          <!-- Draw each roof segment polygon -->
-          <g v-for="segment in validSegments" :key="segment.id">
-            <!-- Use clip path for segments with obstructions in cutout mode -->
-            <polygon
-              v-if="visualizationMode === 'cutout' && segment.has_obstruction"
-              :points="formatPolygonPoints(segment.polygon)"
-              :fill="getSegmentColor(segment)"
-              fill-opacity="0.7"
-              stroke="#ffffff"
-              stroke-width="2"
-              :clip-path="`url(#clip-${segment.id})`"
-            />
-            <!-- Draw normally for segments without obstructions or in overlay mode -->
-            <polygon
-              v-else
-              :points="formatPolygonPoints(segment.polygon)"
-              :fill="getSegmentColor(segment)"
-              fill-opacity="0.5"
-              stroke="#ffffff"
-              stroke-width="2"
-            />
-          </g>
-
-          <!-- Draw obstructions in overlay mode -->
-          <g v-if="visualizationMode === 'overlay'">
-            <polygon
-              v-for="obstruction in allObstructions"
-              :key="`obs-${obstruction.id}`"
-              :points="formatPolygonPoints(obstruction.polygon)"
-              fill="#e74c3c"
-              fill-opacity="0.7"
-              stroke="#ff0000"
-              stroke-width="1"
-            />
-          </g>
-
-          <!-- Show dashed outlines around obstructions in cutout mode -->
-          <g v-if="visualizationMode === 'cutout'">
-            <polygon
-              v-for="obstruction in allObstructions"
-              :key="`obs-outline-${obstruction.id}`"
-              :points="formatPolygonPoints(obstruction.polygon)"
-              fill="none"
-              stroke="#ff0000"
-              stroke-width="1.5"
-              stroke-dasharray="3,2"
-            />
-          </g>
-        </svg>
-
-        <div class="segment-legend">
-          <div class="legend-item">
-            <div class="color-box" style="background-color: #3498db"></div>
-            <span>Roof Segment</span>
-          </div>
-          <div class="legend-item">
-            <div class="color-box" style="background-color: #e74c3c"></div>
-            <span>Obstruction</span>
-          </div>
-        </div>
+        <p>ML analysis found {{ mlSegmentsCount }} roof segments</p>
 
         <div class="ml-data-summary">
           <h4>Segment Data</h4>
@@ -194,6 +236,12 @@
                 {{
                   segment.obstruction_count || getObstructionCount(segment.id)
                 }}
+              </div>
+              <div
+                v-if="getPanelCountForSegment(segment.id) > 0"
+                class="segment-stat-value panel-count"
+              >
+                Panels: {{ getPanelCountForSegment(segment.id) }}
               </div>
             </div>
           </div>
@@ -300,6 +348,11 @@ const buildingInsights = ref(null);
 const completionDuration = ref(0);
 const visualizationMode = ref("overlay"); // overlay or cutout
 
+// Image and overlay refs and dimensions
+const rgbImageRef = ref(null);
+const imageWidth = ref(400);
+const imageHeight = ref(300);
+
 // ML specific refs
 const mlRoofData = ref(null);
 const mlSegmentsCount = ref(0);
@@ -343,6 +396,7 @@ const validSegments = computed(() => {
 
 // Get all valid obstructions
 const allObstructions = computed(() => {
+  return [];
   if (!mlRoofData.value || !mlRoofData.value.obstructions) {
     return [];
   }
@@ -351,6 +405,39 @@ const allObstructions = computed(() => {
     (obstruction) => obstruction.polygon && obstruction.polygon.length > 2
   );
 });
+
+// Get all valid panel layouts
+const allPanelLayouts = computed(() => {
+  if (!mlRoofData.value || !mlRoofData.value.panelLayout) {
+    return [];
+  }
+
+  return mlRoofData.value.panelLayout.filter(
+    (panel) => panel.polygon && panel.polygon.length > 2
+  );
+});
+
+// Handle image load to get dimensions
+const onImageLoad = () => {
+  if (rgbImageRef.value) {
+    imageWidth.value = rgbImageRef.value.naturalWidth || 400;
+    imageHeight.value = rgbImageRef.value.naturalHeight || 300;
+    console.log(
+      `RGB image loaded with dimensions: ${imageWidth.value}x${imageHeight.value}`
+    );
+  }
+};
+
+// Get panel count for a specific segment ID
+const getPanelCountForSegment = (segmentId) => {
+  if (!mlRoofData.value || !mlRoofData.value.panelLayout) {
+    return 0;
+  }
+
+  return mlRoofData.value.panelLayout.filter(
+    (panel) => panel.parent_segment === segmentId
+  ).length;
+};
 
 // Get obstructions for a specific segment ID
 const getObstructionsForSegment = (segmentId) => {
@@ -543,6 +630,8 @@ const resetState = () => {
   mlRoofData.value = null;
   mlSegmentsCount.value = 0;
   visualizationMode.value = "overlay";
+  imageWidth.value = 400;
+  imageHeight.value = 300;
 };
 
 /**
@@ -833,27 +922,35 @@ defineExpose({
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.rgb-image,
+/* RGB overlay container and elements */
+.rgb-overlay-container {
+  position: relative;
+  width: 100%;
+  margin-top: 0.5rem;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.rgb-image {
+  width: 100%;
+  display: block;
+  border-radius: 4px;
+}
+
+.svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Allow clicks to pass through to the image */
+}
+
 .segments-image,
 .flux-image {
   width: 100%;
   border-radius: 4px;
   margin-top: 0.5rem;
-}
-
-.ml-data {
-  margin-top: 10px;
-  background: #f5f5f5;
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  overflow-x: auto;
-}
-
-.segments-svg {
-  width: 100%;
-  height: auto;
-  background-color: #f8f9fa;
 }
 
 .segment-legend {
@@ -872,6 +969,12 @@ defineExpose({
   width: 16px;
   height: 16px;
   border-radius: 2px;
+}
+
+.legend-outline {
+  background-color: transparent;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #333; /* Add shadow to make white border visible */
 }
 
 .ml-data-summary {
@@ -908,6 +1011,11 @@ defineExpose({
 
 .obstruction-count {
   color: #e74c3c;
+  font-weight: 500;
+}
+
+.panel-count {
+  color: #000000;
   font-weight: 500;
 }
 
