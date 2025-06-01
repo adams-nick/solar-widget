@@ -16,6 +16,7 @@ const buildingData = ref(null);
 const solarData = ref(null);
 const isLoading = ref(false);
 const errorMessage = ref("");
+const enableComprehensive = ref(true);
 
 const handleAddressSubmit = (data) => {
   locationData.value = data;
@@ -24,6 +25,9 @@ const handleAddressSubmit = (data) => {
 
 const handleBuildingConfirm = async (building) => {
   buildingData.value = building;
+  if (enableComprehensive.value) {
+    return;
+  }
 
   try {
     // Show loading state
@@ -85,11 +89,17 @@ const resetToMap = () => {
       @submit="handleAddressSubmit"
     />
 
-    <Comprehensive
+    <input
+      type="checkbox"
+      v-model="enableComprehensive"
       v-if="currentStep === 'form'"
+    />
+
+    <Comprehensive
+      v-if="currentStep === 'map' && enableComprehensive && buildingData"
       :location="{
-        latitude: 39.73968535,
-        longitude: -104.9895472,
+        latitude: buildingData.center.latitude,
+        longitude: buildingData.center.longitude,
       }"
     />
     <MapConfirmation
