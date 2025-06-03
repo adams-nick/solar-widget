@@ -249,6 +249,67 @@
             And {{ validSegments.length - 4 }} more segments...
           </p>
         </div>
+
+        <!-- Training Data Collection Section -->
+        <div class="training-data-section">
+          <h4>Help Improve Our Model</h4>
+          <p class="training-description">
+            Rate the accuracy of the roof segment detection to help us improve
+            our AI model.
+          </p>
+
+          <!-- Quality Rating -->
+          <div class="quality-rating">
+            <label class="rating-label">Quality Rating:</label>
+            <div class="star-rating">
+              <button
+                v-for="star in 5"
+                :key="star"
+                @click="setQualityScore(star)"
+                :class="[
+                  'star-button',
+                  { active: star <= qualityScore, disabled: feedbackSubmitted },
+                ]"
+                :disabled="feedbackSubmitted"
+              >
+                {{ star <= qualityScore ? "★" : "☆" }}
+              </button>
+            </div>
+            <span class="rating-text">{{ getRatingText(qualityScore) }}</span>
+          </div>
+
+          <!-- Feedback Actions -->
+          <div class="feedback-actions">
+            <button
+              @click="submitTrainingData"
+              :disabled="!canSubmitFeedback"
+              :class="['accept-button', { disabled: !canSubmitFeedback }]"
+            >
+              {{
+                feedbackSubmitting
+                  ? "Submitting..."
+                  : "Accept & Submit Feedback"
+              }}
+            </button>
+
+            <button
+              @click="rejectSegments"
+              :disabled="feedbackSubmitted"
+              class="reject-button"
+            >
+              Reject Results
+            </button>
+          </div>
+
+          <!-- Feedback Status -->
+          <div
+            v-if="feedbackMessage"
+            class="feedback-message"
+            :class="feedbackMessageType"
+          >
+            {{ feedbackMessage }}
+          </div>
+        </div>
       </div>
 
       <!-- Roof segments (shows when available) -->
@@ -334,7 +395,12 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(["progress", "complete", "error"]);
+const emit = defineEmits([
+  "progress",
+  "complete",
+  "error",
+  "feedbackSubmitted",
+]);
 
 // State
 const status = ref("idle"); // idle, connecting, active, completed, error
@@ -357,6 +423,13 @@ const imageHeight = ref(300);
 const mlRoofData = ref(null);
 const mlSegmentsCount = ref(0);
 
+// Training data collection refs
+const qualityScore = ref(0);
+const feedbackSubmitted = ref(false);
+const feedbackSubmitting = ref(false);
+const feedbackMessage = ref("");
+const feedbackMessageType = ref(""); // success, error
+
 // Computed properties
 const isConnecting = computed(() => status.value === "connecting");
 const isActive = computed(() => status.value === "active");
@@ -371,6 +444,15 @@ const hasMonthlyFlux = computed(() => !!visualizations.value.monthlyFlux);
 const hasMLRoofSegments = computed(() => {
   console.log("Checking hasMLRoofSegments, data:", mlRoofData.value);
   return !!mlRoofData.value;
+});
+
+// Training data computed properties
+const canSubmitFeedback = computed(() => {
+  return (
+    qualityScore.value > 0 &&
+    !feedbackSubmitted.value &&
+    !feedbackSubmitting.value
+  );
 });
 
 // Convenience getters
@@ -514,6 +596,198 @@ const validObstructions = (segment) => {
   );
 };
 
+// Training data methods
+const setQualityScore = (score) => {
+  if (!feedbackSubmitted.value) {
+    qualityScore.value = score;
+  }
+};
+
+const getRatingText = (score) => {
+  const texts = {
+    0: "Select a rating",
+    1: "Poor",
+    2: "Fair",
+    3: "Good",
+    4: "Very Good",
+    5: "Excellent",
+  };
+  return texts[score] || "";
+};
+
+const collectTrainingData = () => {
+  if (!mlRoofData.value || !buildingInsights.value) {
+    throw new Error("Missing required data for training collection");
+  }
+
+  // Get the original RGB image (base64)
+  const rgbImage =
+    visualizations.value.combinedFluxDsm?.dataUrls?.buildingFocus ||
+    visualizations.value.annualFlux?.dataUrls?.buildingFocus ||
+    visualizations.value.rgb?.dataUrls?.buildingFocus ||
+    visualizations.value.rgb?.dataUrls?.fullImage;
+
+  if (!rgbImage) {
+    throw new Error("RGB image not available");
+  }
+
+  console.log("rgb_image: ", rgbImage);
+
+  // Collect prompts that were actually used (from refined roof segments)
+  const prompts = [];
+
+  // Use the refined roof segments that were actually sent to SAM
+  if (visualizations.value.roofSegments?.segments) {
+    visualizations.value.roofSegments.segments.forEach((segment, index) => {
+      // These segments contain the actual prompts used for SAM
+      // Convert segment data to prompt format
+      prompts.push({
+        type: "box", // Most likely box prompts based on segment boundaries
+        coordinates: {
+          min_x: segment.min_x || 0,
+          min_y: segment.min_y || 0,
+          max_x: segment.max_x || imageWidth.value,
+          max_y: segment.max_y || imageHeight.value,
+        },
+        segment_id: segment.id || `segment_${index}`,
+        // Include additional metadata that was sent to SAM
+        azimuth: segment.azimuth,
+        pitch: segment.pitch,
+        suitability: segment.suitability,
+      });
+    });
+  } else {
+    // Fallback: use building box if no refined segments available
+    if (buildingInsights.value.boundingBox) {
+      prompts.push({
+        type: "box",
+        coordinates: {
+          min_x: 0,
+          min_y: 0,
+          max_x: imageWidth.value,
+          max_y: imageHeight.value,
+        },
+      });
+    }
+  }
+
+  // Collect accepted polygon coordinates
+  const acceptedPolygons = validSegments.value.map((segment) => ({
+    id: segment.id,
+    polygon: segment.polygon,
+    confidence: segment.confidence,
+    area: segment.area,
+  }));
+
+  return {
+    rgb_image: rgbImage,
+    prompts: prompts,
+    accepted_polygons: acceptedPolygons,
+    quality_score: qualityScore.value,
+    image_dimensions: {
+      width: imageWidth.value,
+      height: imageHeight.value,
+    },
+    location: props.location,
+    created_at: new Date().toISOString(),
+  };
+};
+
+const submitTrainingData = async () => {
+  if (!canSubmitFeedback.value) return;
+
+  feedbackSubmitting.value = true;
+  feedbackMessage.value = "";
+
+  try {
+    const trainingData = collectTrainingData();
+
+    console.log("Submitting training data:", {
+      quality_score: trainingData.quality_score,
+      segment_count: trainingData.accepted_polygons.length,
+      prompt_count: trainingData.prompts.length,
+    });
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/training/submit-feedback`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(trainingData),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || "Failed to submit feedback");
+    }
+
+    const result = await response.json();
+
+    feedbackSubmitted.value = true;
+    feedbackMessage.value =
+      "Thank you! Your feedback has been submitted successfully.";
+    feedbackMessageType.value = "success";
+
+    emit("feedbackSubmitted", {
+      quality_score: qualityScore.value,
+      training_id: result.training_id,
+    });
+  } catch (error) {
+    console.error("Error submitting training data:", error);
+    feedbackMessage.value = `Error submitting feedback: ${error.message}`;
+    feedbackMessageType.value = "error";
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+};
+
+const rejectSegments = async () => {
+  if (feedbackSubmitted.value) return;
+
+  feedbackSubmitting.value = true;
+  feedbackMessage.value = "";
+
+  try {
+    const trainingData = collectTrainingData();
+    trainingData.quality_score = 0; // Rejection score
+    trainingData.rejected = true;
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/training/submit-feedback`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(trainingData),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || "Failed to submit rejection");
+    }
+
+    feedbackSubmitted.value = true;
+    feedbackMessage.value = "Results rejected. Thank you for your feedback.";
+    feedbackMessageType.value = "success";
+
+    emit("feedbackSubmitted", {
+      quality_score: 0,
+      rejected: true,
+    });
+  } catch (error) {
+    console.error("Error submitting rejection:", error);
+    feedbackMessage.value = `Error submitting rejection: ${error.message}`;
+    feedbackMessageType.value = "error";
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+};
+
 // Watch for ML data changes
 watch(
   visualizations,
@@ -632,6 +906,13 @@ const resetState = () => {
   visualizationMode.value = "overlay";
   imageWidth.value = 400;
   imageHeight.value = 300;
+
+  // Reset training data state
+  qualityScore.value = 0;
+  feedbackSubmitted.value = false;
+  feedbackSubmitting.value = false;
+  feedbackMessage.value = "";
+  feedbackMessageType.value = "";
 };
 
 /**
@@ -917,7 +1198,7 @@ defineExpose({
 .monthly-flux,
 .ml-roof-segments {
   padding: 1rem;
-  background-color: red;
+  background-color: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -1024,6 +1305,138 @@ defineExpose({
   color: #666;
   margin-top: 0.5rem;
   text-align: center;
+}
+
+/* Training Data Collection Styles */
+.training-data-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 2px solid #e9ecef;
+}
+
+.training-description {
+  margin-bottom: 1.5rem;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.quality-rating {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.rating-label {
+  font-weight: 500;
+  min-width: 100px;
+}
+
+.star-rating {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.star-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #ddd;
+  transition: color 0.2s ease;
+  padding: 0.25rem;
+}
+
+.star-button.active {
+  color: #ffc107;
+}
+
+.star-button:hover:not(.disabled) {
+  color: #ffc107;
+}
+
+.star-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.rating-text {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.accept-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.accept-button:hover:not(.disabled) {
+  background-color: #218838;
+  transform: translateY(-1px);
+}
+
+.accept-button.disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.reject-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.reject-button:hover:not(:disabled) {
+  background-color: #c82333;
+  transform: translateY(-1px);
+}
+
+.reject-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.feedback-message {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.feedback-message.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.feedback-message.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
 }
 
 .info-grid {
